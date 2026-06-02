@@ -1,0 +1,91 @@
+## docker-compose.yml
+## Local monitoring stack for development and testing.
+##
+## Services:
+##   - prometheus  : Metrics collection (port 9090)
+##   - grafana     : Dashboards (port 3000, login: admin/admin)
+##   - node-exporter: Host metrics (CPU, mem, disk)
+##   - demo-app    : Simple HTTP service to monitor (port 8080)
+##
+## Usage:
+##   docker compose up -d           # Start all services
+##   docker compose down            # Stop and remove containers
+##   docker compose logs -f grafana # Follow Grafana logs
+
+version: "3.8"
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus_data: {}
+  grafana_data: {}
+
+services:
+
+  # ── Prometheus ──────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../alerts/prometheus_alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"   # allows config reload via POST /-/reload
+    networks:
+      - monitoring
+
+  # ── Grafana ─────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/dashboard.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../dashboards/grafana_dashboard.json:/var/lib/grafana/dashboards/dashboard.json:ro
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring
+
+  # ── Node Exporter (host metrics) ────────────────────────────────────────────
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($|/)"
+    networks:
+      - monitoring
+
+  # ── Demo App (simple HTTP service to test monitoring) ───────────────────────
+  demo-app:
+    image: kennethreitz/httpbin
+    container_name: demo-app
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    networks:
+      - monitoring

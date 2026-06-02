@@ -1,0 +1,36 @@
+## prometheus.yml
+## Prometheus scrape configuration for the local monitoring stack.
+## Place this file alongside docker-compose.yml in the configs/ directory.
+
+global:
+  scrape_interval:     15s   # How often to scrape targets
+  evaluation_interval: 15s   # How often to evaluate alerting rules
+  scrape_timeout:      10s
+
+rule_files:
+  - "alerts.yml"             # Maps to the mounted prometheus_alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []        # Add alertmanager:9093 if you deploy Alertmanager
+
+scrape_configs:
+
+  # Prometheus itself
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Host metrics via node-exporter
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # Demo application
+  - job_name: "demo-app"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["demo-app:80"]
+    # If the app doesn't expose /metrics, comment the above and
+    # use blackbox-exporter for HTTP probing instead.

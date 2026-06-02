@@ -1,0 +1,146 @@
+## prometheus_alerts.yml
+## Prometheus alerting rules for backend service monitoring.
+## Deploy alongside prometheus.yml in your Prometheus configuration.
+##
+## To load: add this file under `rule_files:` in prometheus.yml
+##   rule_files:
+##     - "alerts/prometheus_alerts.yml"
+
+groups:
+
+  # ── Service Availability ───────────────────────────────────────────────────
+  - name: service_availability
+    rules:
+
+      - alert: ServiceDown
+        # Fires when a target has been unreachable for more than 1 minute
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service is DOWN: {{ $labels.job }}"
+          description: >
+            Target {{ $labels.instance }} (job: {{ $labels.job }}) has been
+            unreachable for more than 1 minute.
+          runbook: "docs/INCIDENT_RUNBOOK.md"
+
+      - alert: HighErrorRate
+        # Fires when >5% of HTTP requests in the last 5 minutes are 5xx errors
+        expr: >
+          sum(rate(http_requests_total{status=~"5.."}[5m])) by (job)
+          /
+          sum(rate(http_requests_total[5m])) by (job)
+          > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate on {{ $labels.job }}"
+          description: >
+            Error rate is {{ $value | humanizePercentage }} for job {{ $labels.job }}.
+            This exceeds the 5% threshold.
+
+  # ── Latency ────────────────────────────────────────────────────────────────
+  - name: latency
+    rules:
+
+      - alert: HighP99Latency
+        # Fires when 99th-percentile request duration exceeds 1 second
+        expr: >
+          histogram_quantile(0.99, 
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)
+          ) > 1.0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High P99 latency on {{ $labels.job }}"
+          description: >
+            P99 latency for {{ $labels.job }} is {{ $value | humanizeDuration }},
+            exceeding the 1s threshold.
+
+  # ── System Resources ───────────────────────────────────────────────────────
+  - name: system_resources
+    rules:
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | printf \"%.0f\" }}% (threshold: 85%)"
+
+      - alert: HighMemoryUsage
+        expr: >
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | printf \"%.0f\" }}% (threshold: 90%)"
+
+      - alert: DiskSpaceLow
+        expr: >
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|devtmpfs"}
+          / node_filesystem_size_bytes{fstype!~"tmpfs|devtmpfs"}) * 100 < 15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: >
+            Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }}
+            has only {{ $value | printf \"%.1f\" }}% free.
+
+      - alert: DiskSpaceCritical
+        expr: >
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|devtmpfs"}
+          / node_filesystem_size_bytes{fstype!~"tmpfs|devtmpfs"}) * 100 < 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CRITICAL: Disk nearly full on {{ $labels.instance }}"
+          description: >
+            Filesystem {{ $labels.mountpoint }} has {{ $value | printf \"%.1f\" }}% free.
+            Immediate action required.
+
+  # ── Kubernetes ─────────────────────────────────────────────────────────────
+  - name: kubernetes
+    rules:
+
+      - alert: PodCrashLooping
+        expr: >
+          rate(kube_pod_container_status_restarts_total[15m]) * 60 * 15 > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pod is crash-looping: {{ $labels.pod }}"
+          description: >
+            Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted
+            {{ $value | printf \"%.0f\" }} times in the last 15 minutes.
+
+      - alert: PodNotReady
+        expr: kube_pod_status_ready{condition="false"} == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod not ready: {{ $labels.pod }}"
+          description: >
+            Pod {{ $labels.namespace }}/{{ $labels.pod }} has been
+            in a not-ready state for more than 5 minutes.
+
+      - alert: NodeNotReady
+        expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kubernetes node not ready: {{ $labels.node }}"
+          description: "Node {{ $labels.node }} has been NotReady for more than 2 minutes."

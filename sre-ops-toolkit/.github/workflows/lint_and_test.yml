@@ -1,0 +1,62 @@
+## lint_and_test.yml
+## GitHub Actions CI pipeline.
+## Runs on every push and pull request.
+##
+## Jobs:
+##   1. shellcheck  — lints all .sh scripts for common Bash mistakes
+##   2. python-lint — runs flake8 on all .py scripts
+
+name: Lint & Test
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+
+  # ── Shell script linting ───────────────────────────────────────────────────
+  shellcheck:
+    name: ShellCheck (Bash lint)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck on all .sh files
+        run: |
+          echo "Scanning shell scripts..."
+          find scripts/ -name "*.sh" -print0 \
+            | xargs -0 shellcheck --severity=warning
+          echo "ShellCheck passed."
+
+  # ── Python linting ─────────────────────────────────────────────────────────
+  python-lint:
+    name: Python Lint (flake8)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8 on all .py files
+        run: |
+          echo "Scanning Python scripts..."
+          flake8 scripts/ \
+            --max-line-length=100 \
+            --ignore=E501,W503 \
+            --statistics
+          echo "flake8 passed."

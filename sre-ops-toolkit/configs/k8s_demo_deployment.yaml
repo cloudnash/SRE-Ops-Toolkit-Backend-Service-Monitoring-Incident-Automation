@@ -1,0 +1,72 @@
+## k8s_demo_deployment.yaml
+## A sample Kubernetes deployment for testing the monitoring scripts.
+## Deploys a simple HTTP echo service with 2 replicas.
+##
+## Usage:
+##   kubectl apply -f configs/k8s_demo_deployment.yaml
+##   kubectl delete -f configs/k8s_demo_deployment.yaml
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  namespace: default
+  labels:
+    app: demo-app
+    env: dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+    spec:
+      containers:
+        - name: demo-app
+          image: kennethreitz/httpbin:latest
+          ports:
+            - containerPort: 80
+              name: http
+          # Resource limits — important for preventing noisy neighbors
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          # Liveness probe — Kubernetes restarts the pod if this fails
+          livenessProbe:
+            httpGet:
+              path: /status/200
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          # Readiness probe — pod removed from Service load balancer if this fails
+          readinessProbe:
+            httpGet:
+              path: /status/200
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 2
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  namespace: default
+spec:
+  selector:
+    app: demo-app
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP
